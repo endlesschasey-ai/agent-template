@@ -41,6 +41,7 @@
     ├── components/     # 组件
     ├── utils/          # 工具函数
     └── types/          # TypeScript 类型
+```
 
 ## 开发指南
 
