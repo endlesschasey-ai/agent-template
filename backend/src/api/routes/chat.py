@@ -116,38 +116,20 @@ async def generate_sse_response(
             async def process_agent_stream():
                 """处理 Agent 流式响应"""
                 nonlocal accumulated_content, agent_done
-                logger.info("[process_agent_stream] 🚀 开始处理 Agent 流式响应")
-                chunk_count = 0
                 try:
-                    logger.info("[process_agent_stream] 📡 准备迭代响应流...")
                     async for chunk in response:
-                        chunk_count += 1
-                        logger.info(f"[process_agent_stream] 📦 收到 chunk #{chunk_count}: type={type(chunk)}, has_content={hasattr(chunk, 'content')}")
-
-                        # 打印 chunk 的属性
-                        if hasattr(chunk, '__dict__'):
-                            logger.debug(f"[process_agent_stream] chunk 属性: {chunk.__dict__}")
-
                         # 文本内容 - 发送为正文内容
                         if hasattr(chunk, "content") and chunk.content:
-                            logger.info(f"[process_agent_stream] ✅ 有内容: {chunk.content[:100]}...")
                             accumulated_content += chunk.content
-
-                            # 将 Agent 的文本输出作为正文内容发送
                             yield engine.emit_content(
                                 content=chunk.content,
                                 format="markdown",
                                 is_complete=False
                             )
-                        else:
-                            logger.warning(f"[process_agent_stream] ⚠️  chunk 没有 content 或 content 为空")
-
-                    logger.info(f"[process_agent_stream] ✅ 流式响应结束，共收到 {chunk_count} 个 chunks")
                 except Exception as e:
-                    logger.error(f"[process_agent_stream] ❌ 处理流时出错: {e}", exc_info=True)
+                    logger.error(f"[process_agent_stream] 处理流时出错: {e}", exc_info=True)
                 finally:
                     agent_done = True
-                    logger.info("[process_agent_stream] 🏁 设置 agent_done=True，发送完成事件")
                     await event_queue.put({"event_type": "agent_done"})
 
             # 启动 Agent 流式处理任务
@@ -155,18 +137,10 @@ async def generate_sse_response(
 
             # 同时处理两个流：Agent 输出流和事件队列
             try:
-                # 使用标志跟踪哪个流还在运行
                 agent_streaming = True
-                loop_count = 0
-                agent_task_running = None  # 跟踪当前运行的 agent_task
-
-                logger.info("[main_loop] 🔄 开始主循环，同时处理 Agent 流和事件队列")
+                agent_task_running = None
 
                 while agent_streaming or not event_queue.empty():
-                    loop_count += 1
-                    logger.debug(f"[main_loop] 循环 #{loop_count}, agent_streaming={agent_streaming}, queue_empty={event_queue.empty()}")
-
-                    # 创建两个任务
                     tasks = []
 
                     # Agent 输出流任务 - 只有在没有任务运行时才创建新的
@@ -174,7 +148,6 @@ async def generate_sse_response(
                         agent_task_running = asyncio.create_task(
                             anext(agent_generator, None)
                         )
-                        logger.debug(f"[main_loop] 创建新的 agent_task")
 
                     if agent_task_running is not None:
                         tasks.append(agent_task_running)
@@ -185,47 +158,38 @@ async def generate_sse_response(
                             asyncio.wait_for(event_queue.get(), timeout=0.1)
                         )
                         tasks.append(queue_task)
-                        logger.debug(f"[main_loop] 添加 queue_task")
                     except asyncio.TimeoutError:
                         pass
 
                     if not tasks:
-                        logger.info("[main_loop] 没有任务，退出循环")
                         break
 
                     # 等待任意任务完成
-                    logger.debug(f"[main_loop] 等待 {len(tasks)} 个任务完成...")
                     done, pending = await asyncio.wait(
                         tasks,
                         return_when=asyncio.FIRST_COMPLETED
                     )
-                    logger.debug(f"[main_loop] {len(done)} 个任务完成，{len(pending)} 个任务待处理")
 
                     # 处理完成的任务
                     for task in done:
                         # 检查是否是 agent_task 完成了
                         if task is agent_task_running:
                             agent_task_running = None
-                            logger.debug("[main_loop] agent_task 已完成，重置为 None")
 
                         try:
                             result = task.result()
-                            logger.debug(f"[main_loop] 任务结果: type={type(result)}, value={str(result)[:200] if result else 'None'}")
 
                             # 如果是 Agent 输出
                             if result and isinstance(result, str):
-                                logger.info(f"[main_loop] 📤 Agent 输出 (str): {result[:100]}...")
                                 yield result
 
                             # 如果是 Agent 完成信号
                             elif result is None and agent_streaming:
-                                logger.info("[main_loop] 🏁 Agent 完成信号 (None)")
                                 agent_streaming = False
 
                             # 如果是事件队列的事件
                             elif result and isinstance(result, dict):
                                 event = result
-                                logger.info(f"[main_loop] 📨 事件队列事件: {event.get('event_type')}")
 
                                 # Agent 完成
                                 if event.get("event_type") == "agent_done":

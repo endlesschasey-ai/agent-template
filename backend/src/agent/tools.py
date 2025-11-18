@@ -40,55 +40,6 @@ class AgentToolkit(Toolkit):
         if self.event_queue:
             await self.event_queue.put(event)
 
-    async def finalize_answer(self, answer: str) -> dict:
-        """
-        输出最终答案（必须调用此工具来输出回复）
-
-        Args:
-            answer: 最终答案内容
-
-        Returns:
-            包含最终答案的字典
-        """
-        tool_id = f"tool_{uuid.uuid4().hex[:8]}"
-        start_time = time.time()
-
-        # 发送工具调用开始事件
-        await self._emit_event({
-            "event_type": "tool_call_start",
-            "tool_id": tool_id,
-            "tool_name": "finalize_answer",
-            "description": "输出最终答案",
-            "arguments": {"answer_length": len(answer)}
-        })
-
-        logger.info(f"[finalize_answer] 输出最终答案，长度: {len(answer)} 字符")
-
-        # 发送内容事件
-        await self._emit_event({
-            "event_type": "content",
-            "content": answer,
-            "format": "markdown",
-            "is_complete": True
-        })
-
-        result = {
-            "type": "final_answer",
-            "content": answer
-        }
-
-        # 发送工具调用结束事件
-        duration_ms = int((time.time() - start_time) * 1000)
-        await self._emit_event({
-            "event_type": "tool_call_end",
-            "tool_id": tool_id,
-            "status": "success",
-            "result": result,
-            "duration_ms": duration_ms
-        })
-
-        return result
-
     async def display_table(
         self,
         table_name: str,
